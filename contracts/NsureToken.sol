@@ -8,17 +8,44 @@ import {
 contract NsureToken is ERC20, ERC20Detailed {
     address public core;
 
+    /**
+     * This option is expired after this blocknumber.
+     */
+    uint256 public expirationBlockNumber;
+
     constructor(
         address _core,
         string memory _name,
         string memory _symbol,
-        uint8 _decimals
-    ) public ERC20Detailed(_name, _symbol, _decimals) {
+        uint256 _expirationBlockNumber
+    ) public ERC20Detailed(_name, _symbol, 18) {
         core = _core;
+        expirationBlockNumber = _expirationBlockNumber;
     }
 
     modifier onlyCore() {
         require(msg.sender == core, "Not authorized");
+        _;
+    }
+
+    /**
+     * Check if the option has expired.
+     */
+    function hasExpired() external view returns (bool) {
+        return _hasExpired();
+    }
+
+    modifier notExpired() {
+        if (_hasExpired()) {
+            revert("Option has expired");
+        }
+        _;
+    }
+
+    modifier alreadyExpired() {
+        if (!_hasExpired()) {
+            revert("Option has not expired");
+        }
         _;
     }
 
@@ -32,5 +59,9 @@ contract NsureToken is ERC20, ERC20Detailed {
 
     function burnForSelf(uint256 amount) external {
         _burn(msg.sender, amount);
+    }
+
+    function _hasExpired() internal view returns (bool) {
+        return block.number >= expirationBlockNumber;
     }
 }

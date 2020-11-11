@@ -18,20 +18,7 @@ contract Controller is Storage {
     address public core;
 
     struct Option {
-        /**
-         * The asset used as the underlying token, such as DAI
-         */
-        IERC20 underlyingAsset;
-        uint256 underlyingAssetDecimal;
-        /**
-         * The strike asset vault, such as USDC
-         */
-        NsureToken strikeAsset;
-        /**
-         * The sell price of each unit of strikeAsset; given in units
-         * of strikeAsset, e.g. 0.99 USDC
-         */
-        uint256 strikePrice;
+
     }
 
     // NsureToken => vault

@@ -37,6 +37,8 @@ contract NsurePutToken is ERC20, ERC20Detailed, ReentrancyGuard, Storage {
     //key: user, value: strike asset数量
     mapping(address => uint256) public vaultBalance;
 
+    event LOG1(uint256 indexed a, string b);
+
     constructor(
         string memory _name,
         string memory _symbol,
@@ -69,7 +71,7 @@ contract NsurePutToken is ERC20, ERC20Detailed, ReentrancyGuard, Storage {
     //未过期为true
     modifier notExpired() {
         if (_hasExpired()) {
-            revert("Option has expired");
+            revert("ERROR: Option has expired");
         }
         _;
     }
@@ -77,7 +79,7 @@ contract NsurePutToken is ERC20, ERC20Detailed, ReentrancyGuard, Storage {
     //已过期为true
     modifier alreadyExpired() {
         if (!_hasExpired()) {
-            revert("Option has not expired");
+            revert("ERROR: Option has not expired");
         }
         _;
     }
@@ -103,29 +105,6 @@ contract NsurePutToken is ERC20, ERC20Detailed, ReentrancyGuard, Storage {
         _mint(msg.sender, amount.mul(XONE));
     }
 
-    //burn DAI并销毁期权Token，拿走锁定的Strike Asset
-    //amount: 希望burn的NsurePutToken数量
-    //only minter should burn, not buyer
-    // function burn(uint256 amount) public notExpired nonReentrant {
-    //     require(
-    //         //锁定的DAI数量 > withdraw数量
-    //         amount <= vaultBalance[msg.sender],
-    //         "ERROR: minter amount not enough"
-    //     );
-
-    //     //减去withdraw的DAI数量
-    //     vaultBalance[msg.sender] = vaultBalance[msg.sender].sub(amount);
-
-    //     //burn等量的NsurePutToken
-    //     _burn(msg.sender, amount.mul(XONE));
-
-    //     require(
-    //         //提取DAI
-    //         strikeAsset.transfer(msg.sender, amount.mul(strikePrice)),
-    //         "ERROR: strike asset can not transfer back"
-    //     );
-    // }
-
     //the amount of underlying token locked in this contract
     function underlyingBalanceOf() external view returns (uint256) {
         return underlyingAsset.balanceOf(address(this));
@@ -138,10 +117,13 @@ contract NsurePutToken is ERC20, ERC20Detailed, ReentrancyGuard, Storage {
 
     //到期前，调用方行权拿到strike asset
     //若已行权而没有足够的strike asset，则转换为underlying asset返回给调用方
-    //amount: underlying asset的数量
+    //amount: NsurePutToken数量
     function exercise(uint256 amount) external notExpired {
         uint256 underlyingAmount = amount *
             (10**uint256(underlyingAssetDecimal));
+
+        emit LOG1(underlyingAmount, "underlyingAmount");
+
         require(
             underlyingAsset.transferFrom(
                 msg.sender,
@@ -160,12 +142,14 @@ contract NsurePutToken is ERC20, ERC20Detailed, ReentrancyGuard, Storage {
     }
 
     //到期后，赎回
-    function withdraw() external alreadyExpired {
-        _redeem(vaultBalance[msg.sender]);
-    }
+    function redeem() external alreadyExpired {
+        require(
+            vaultBalance[msg.sender] > 0,
+            "ERROR: user vaultBalance is zero"
+        );
 
-    //amount: NsureToken数量
-    function _redeem(uint256 amount) internal {
+        //amount: NsureToken数量
+        uint256 amount = vaultBalance[msg.sender];
         // Calculates how many underlying/strike tokens the caller will get back
         //当前strike asset余额
         uint256 currentStrikeBalance = strikeAsset.balanceOf(address(this));

@@ -1,128 +1,155 @@
 pragma solidity 0.5.17;
 
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {
-    ERC20Detailed
-} from "@openzeppelin/contracts/token/ERC20/ERC20Detailed.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import './OptionToken.sol';
 
-import "./Const.sol";
-
-contract NsureToken is ERC20, ERC20Detailed, ReentrancyGuard, Constants {
+contract OptionFunction is OptionToken {
     
     address public core;
+    bool public initialized;
 
+    //标的资产
+    address public underlyingAsset;
+    uint256 public underlyingAssetDecimals;
+    
+    //行使资产
+    address public strikeAsset;
+    
+    // 目标价格
+    uint256 public targetPrice;
+    // 行权价格
+    uint256 public strikePrice;
+
+    // 1个行使资产可以创建多少个期权
+    uint public optionAmountPerStrike;
     //到期块数
     uint256 public expirationBlockNumber;
 
-    //标的资产, DAI
-    IERC20 underlyingAsset;
-    //标的资产位数
-    uint256 underlyingAssetDecimal;
-    
-    //行使资产, WETH
-    IERC20 strikeAsset;
-    //行使价格
-    uint256 strikePrice;
+    // 行权的金额，
+    uint256 public strikeAssetAmountPerOption;
+    uint256 public expirableStrikeAssetAmount;
+    uint256 public redeemableStrikeAssetAmount;
 
-    //是否允许交易
-    bool isPublic = false;
-
-    // 1个行使资产可以创建多少个期权
-    uint strikeRate;
-
-    //vault, 锁定underlying asset
-    mapping(address => uint256) public vaultBalance;
-
-    constructor(
-        address _core,
-        string memory _name,
-        string memory _symbol,
-        //标的资产
-        IERC20 _underlyingAsset,
-        //标的资产位数
-        uint8 _underlyingAssetDecimals,
-        //行使资产
-        IERC20 _strikeAsset,
-        //行使价格
-        uint256 _strikePrice,
-        //到期块数
-        uint256 _expirationBlockNumber
-    ) public ERC20Detailed(_name, _symbol, 18) {
-        core = _core;
-        underlyingAsset = _underlyingAsset;
-        underlyingAssetDecimal = _underlyingAssetDecimals;
-        strikeAsset = _strikeAsset;
-        strikePrice = _strikePrice;
-        expirationBlockNumber = _expirationBlockNumber;
-    }
+    // 期权记录
+    uint256 public totalOptions;  
+    mapping(address => uint256) public sellerOption;
 
     modifier onlyCore() {
         require(msg.sender == core, "Not authorized");
         _;
     }
 
-    //是否过期
-    function hasExpired() external view returns (bool) {
-        return _hasExpired();
-    }
-
-    //未过期为true
-    modifier notExpired() {
-        if (_hasExpired()) {
-            revert("Option has expired");
-        }
+    modifier beforeExercisePeriod() {
+        require(_exerciseStatus() == 0, "Error: exercise period has passed");
         _;
     }
 
-    //已过期为true
-    modifier alreadyExpired() {
-        if (!_hasExpired()) {
-            revert("Option has not expired");
-        }
+    modifier inExercisePeriod() {
+        require(_exerciseStatus() == 1, "Error: not in exercise period");
         _;
     }
 
-    //收取Strike Asset，铸造期权Token
-    function mint(uint256 amount) public beforeExpiration {
-        require(strikeAsset.transferFrom(msg.sender, address(this), amount.mul(strikePrice)), "ERROR: strike asset transfer from sender");
-
-        vaultBalance[msg.sender] = lockedBalance[msg.sender].add(amount);
-        _mint(msg.sender, amount.mul(XONE));
-
-        //isPublic = true;
+    modifier afterExercisePeriod() {
+        require(_exerciseStatus() == 2, "Error: exercise period is not over");
+        _;
     }
 
-    //burn期权Token，解锁Strike Asset
-    function burn(uint256 amount) public beforeExpiration {
-        require(amount <= vaultBalance[msg.sender], "ERROR: strike asset not enough");
+    function initialize (
+        address _core,
+        address _underlyingAsset,
+        address _strikeAsset,
+        uint256 _targetPrice,
+        uint256 _expirationBlockNumber,
+        uint256 _optionAmountPerStrike
+    ) public {
+        require(!initialized, "Error: have initialized");
 
-        vaultBalance[msg.sender] = vaultBalance[msg.sender].sub(amount);
-        _burn(msg.sender,, amount.mul(XONE));
+        initialized = true;
+        
+        core = _core;
+        
+        underlyingAsset = _underlyingAsset;
+        if (underlyingAsset == address(0)) {
+            decimals = 18;
+        } else {
+            underlyingAssetDecimals = IERC20(_underlyingAsset).decimals();
+        }
+        
+        strikeAsset = _strikeAsset;
+        if (strikeAsset == address(0)) {
+            decimals = 18;
+        } else {
+            decimals = IERC20(strikeAsset).decimals();
+        }
 
-        require(strikeAsset.transfer(msg.sender, amount.mul(strikePrice)), "ERROR: strike asset can not transfer back");
+        targetPrice = _targetPrice;
+        expirationBlockNumber = _expirationBlockNumber;
+        optionAmountPerStrike = _optionAmountPerStrike;
     }
 
-    //the amount of underlying token locked in this contract
-    function underlyingBalanceOf() external view returns (uint256) {
-        return underlyingAsset.balanceOf(address(this));
+    // 管理员结算期间不允许交易
+    function _transfer(address from, address to, uint value) internal {
+        require(_exerciseStatus() != 1, "Error: can not transfer in exercise perio");
+        balanceOf[from] = balanceOf[from].sub(value);
+        balanceOf[to] = balanceOf[to].add(value);
+        emit Transfer(from, to, value);
     }
 
-    //the amount of strike token locked in this contract
-    function strikeBalance() external view returns (uint256) {
-        return strikeAsset.balanceOf(address(this));
+    // 铸造期权
+    function mint(address user, uint _strikeAssetAmount) public payable onlyCore beforeExercisePeriod {
+        
+        if (strikeAsset == address(0)) {
+            require(msg.value == _strikeAssetAmount, "Error: invalid amount of strike asset");
+        } else {
+            require(IERC20(strikeAsset).transferFrom(msg.sender, address(this), _strikeAssetAmount), "Error: transfer from error from controller to option");
+        }
+        
+        uint optionAmount = _strikeAssetAmount.mul(strikeAssetAmountPerOption).div(decimals);
+        sellerOption[user] = sellerOption[user].add(optionAmount);
+        totalOptions = totalOptions.add(optionAmount);
+        _mint(user, optionAmount);
     }
 
-    function withdraw() external afterExpiration {
-        _redeem(lockedBalance[msg.sender]);
+    // 管理员输入价格,并进行行权结算
+    function exercise(uint _strikePrice) public onlyCore inExercisePeriod {
+        strikePrice = _strikePrice;
+        if (strikePrice <= targetPrice) {
+            strikeAssetAmountPerOption = 0;
+            expirableStrikeAssetAmount = 0;
+        } else {
+            uint maxUnderlyingAssetmountPerOption = strikePrice.div(optionAmountPerStrike);
+            uint actUnderlyingAssetAmountPerOption = strikePrice.sub(targetPrice);
+            uint underlyingAssetAmountPerOption = (maxUnderlyingAssetmountPerOption < actUnderlyingAssetAmountPerOption ? maxUnderlyingAssetmountPerOption : actUnderlyingAssetAmountPerOption);
+            strikeAssetAmountPerOption = strikePrice.mul(decimals).div(underlyingAssetAmountPerOption);
+            expirableStrikeAssetAmount = totalSupply.mul(strikeAssetAmountPerOption).div(decimals);
+        }
+        redeemableStrikeAssetAmount = address(this).balance.sub(expirableStrikeAssetAmount);
     }
 
-    function liquidation() external afterExpiration {}
-
-    function _redeem(uint256 amount) internal {
+    // 使用期权赎回
+    function redeem(address payable user, uint _optionAmount) public onlyCore afterExercisePeriod {
+        // 使用期权赎回strikeAsset，任何人只要有期权就可以赎回
+        uint strikeAssetAmount = _optionAmount.mul(strikeAssetAmountPerOption).div(decimals);
+        // 如果是创建者，返回剩余的strikeAsset
+        uint createdOption = sellerOption[user];
+        if (createdOption > 0) {
+            strikeAssetAmount = strikeAssetAmount.add(redeemableStrikeAssetAmount.mul(createdOption).div(totalOptions));
+            sellerOption[user] = 0;
+        }
+        if (strikeAsset == address(0)) {
+            (user).transfer(strikeAssetAmount);
+        } else {
+            IERC20(strikeAsset).transfer(user, strikeAssetAmount);
+        }
+        _burn(user, _optionAmount);
     }
 
-    function _hasExpired() internal view returns (bool) {
-        return block.number >= expirationBlockNumber;
+     function _exerciseStatus() internal returns (uint) {
+        if (block.number < expirationBlockNumber) {
+            return 0;
+        } else if (strikePrice == 0) {
+            return 1;
+        } else {
+            return 2;
+        }
     }
 }

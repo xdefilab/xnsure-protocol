@@ -1,6 +1,7 @@
 pragma solidity 0.5.17;
 
-import './OptionToken.sol';
+import './libraries/IERC20.sol';
+import './OptionFunction.sol';
 
 contract OptionController {
 
@@ -10,12 +11,16 @@ contract OptionController {
         uint optionRate;
         address optionAddress;
     }
-
-    mapping(bytes32 => option) public options;  // 根据日期和价格确定期权
     
     uint[] public deadlines;  // 可选的清算截止日期
     uint[] public targets;    // 可选的清算目标金额
     uint public optionRate;   // 汇率（1个以太坊可以创建多少份期权）
+    address public underlyingAsset;
+    address public strikeAsset;
+
+    address public uniswap;
+
+    mapping(bytes32 => option) public options;  // 根据日期和价格确定期权
 
     /*******************  期权参数配置 *****************/
     
@@ -28,11 +33,13 @@ contract OptionController {
     // onlyOwner
     function setOptionRate() public {}
 
-    function getDeadlines() public view returns (uint[]) {
+    function setUniswap() public {}
+
+    function getDeadlines() public view returns (uint[] memory) {
         return deadlines;
     }
 
-    function getTargets() public view returns (uint[]) {
+    function getTargets() public view returns (uint[] memory) {
         return targets;
     }
 
@@ -41,44 +48,66 @@ contract OptionController {
     }
 
     /*******************  创建期权 *****************/
+    
+    // TODO：判断deadline 和 target是否合法
+    modifier validParamers(uint _deadline, uint _target) {
+        _;
+    }
+    
     // 创建期权(deadline需要大于now)
-    function createOption(uint _deadline, uint _target) public payable {
-        // 先判断这两个参数是否合法（在参数列表里面）
+    function createOption(uint _deadline, uint _target) public payable validParamers(_deadline, _target) {
         
-        // 判断这个期权是否存在，如果不存在就创建，如果存在就直接mint
+        require(msg.value > 0, "Error");
+        
         bytes32 salt = keccak256(abi.encodePacked(_deadline, _target));
-        if (options[salt].optionAddress != address(0)) {
-            // 期权存在，直接mint
-        } else {
-            address optionAddress;
-            bytes memory bytecode = type(OptionToken).creationCode;
+        address optionAddress = options[salt].optionAddress;
+        if (optionAddress == address(0)) {
+            bytes memory bytecode = type(OptionFunction).creationCode;
             assembly {
-                optionAddress := create2(0, add(bytecode, 32), mload(bytecode), salt);
+                optionAddress := create2(0, add(bytecode, 32), mload(bytecode), salt)
             }
-            // 初始化代币信息
-            options[option] = option(_deadline, _target, optionRate, optionAddress);
+
+            OptionFunction(optionAddress).initialize(address(this),
+                underlyingAsset, strikeAsset, _target, _deadline, optionRate);
+
+            options[salt] = option(_deadline, _target, optionRate, optionAddress);
         }
 
+        OptionFunction(optionAddress).mint.value(msg.value)(msg.sender, msg.value);
+    }
+
+    // 使用期权赎回现货（只有在结算以后才可以赎回）
+    function redeemOption(uint _deadline, uint _target, uint _optionAmount) public {
         
     }
 
-    // 赎回期权（只有在结算以后才可以赎回）
-    function burnOption(uint _deadline, uint _target, uint _optionAmount) public {
-
+    // 管理员推送价格并行权清算
+    function exercise(uint _deadline, uint _target, uint amount) public {
+        // 判断是否在行权期间
     }
 
-    // 买家行权（只有在结算以后才可以赎回）
-    function exercise(uint _deadline, uint _target, uint amount) public {}
-
-
-    // 清算
-    function clear(uint _deadline, uint _target) public {}
-
+    /*********************** 查询代币信息封装 **************************/ 
+    
     // 根据期权参数，查询期权地址
-    function optionAddress(uint _deadline, uint _target) public view returns (address optionAddress) {
+    function getOptionAddress(uint _deadline, uint _target) public view returns (address optionAddress) {
         bytes32 salt = keccak256(abi.encodePacked(_deadline, _target));
         optionAddress =  options[salt].optionAddress;
     }
+
+    // 根据地址查询代币 deadline target等信息
+
+    /*********************** uniswap 封装 **************************/ 
+    function addLiquidity() public {}
+
+    function revomeLiquidity() public {}
+
+    function swap() public {}
+
+    function getAmountsIn() public {}
+
+    function getAmountsOn() public {}
+
+    
     
 
 

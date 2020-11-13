@@ -19,7 +19,7 @@ contract NsurePutToken is ERC20, ERC20Detailed, ReentrancyGuard, Storage {
     //基础资产位数
     uint256 public underlyingAssetDecimal;
 
-    //行使资产, USDC
+    //行使资产, DAI
     IERC20 public strikeAsset;
     //行使资产位数
     uint256 public strikeAssetDecimal;
@@ -82,11 +82,12 @@ contract NsurePutToken is ERC20, ERC20Detailed, ReentrancyGuard, Storage {
         _;
     }
 
-    //mint USDC并铸造期权Token
+    //mint DAI并铸造期权Token
     //支付Strike Asset，锁在Vault
+    //amount: 希望铸造的NsurePutToken数量
     function mint(uint256 amount) public notExpired nonReentrant {
         require(
-            //支付USDC
+            //支付DAI
             strikeAsset.transferFrom(
                 msg.sender,
                 address(this),
@@ -95,34 +96,35 @@ contract NsurePutToken is ERC20, ERC20Detailed, ReentrancyGuard, Storage {
             "ERROR: strike asset transfer from sender"
         );
 
-        //更新锁定的USDC数量
+        //更新锁定的DAI数量
         vaultBalance[msg.sender] = vaultBalance[msg.sender].add(amount);
 
         //铸造等量的NsurePutToken
         _mint(msg.sender, amount.mul(XONE));
     }
 
-    //withdraw USDC并销毁期权Token
-    //拿走锁定的Strike Asset
-    function burn(uint256 amount) public notExpired nonReentrant {
-        require(
-            //锁定的USDC数量 > withdraw数量
-            amount <= vaultBalance[msg.sender],
-            "ERROR: withdraw amount not enough"
-        );
+    //burn DAI并销毁期权Token，拿走锁定的Strike Asset
+    //amount: 希望burn的NsurePutToken数量
+    //only minter should burn, not buyer
+    // function burn(uint256 amount) public notExpired nonReentrant {
+    //     require(
+    //         //锁定的DAI数量 > withdraw数量
+    //         amount <= vaultBalance[msg.sender],
+    //         "ERROR: minter amount not enough"
+    //     );
 
-        //减去withdraw的USDC数量
-        vaultBalance[msg.sender] = vaultBalance[msg.sender].sub(amount);
+    //     //减去withdraw的DAI数量
+    //     vaultBalance[msg.sender] = vaultBalance[msg.sender].sub(amount);
 
-        //burn等量的NsurePutToken
-        _burn(msg.sender, amount.mul(XONE));
+    //     //burn等量的NsurePutToken
+    //     _burn(msg.sender, amount.mul(XONE));
 
-        require(
-            //提取USDC
-            strikeAsset.transfer(msg.sender, amount.mul(strikePrice)),
-            "ERROR: strike asset can not transfer back"
-        );
-    }
+    //     require(
+    //         //提取DAI
+    //         strikeAsset.transfer(msg.sender, amount.mul(strikePrice)),
+    //         "ERROR: strike asset can not transfer back"
+    //     );
+    // }
 
     //the amount of underlying token locked in this contract
     function underlyingBalanceOf() external view returns (uint256) {
@@ -138,7 +140,8 @@ contract NsurePutToken is ERC20, ERC20Detailed, ReentrancyGuard, Storage {
     //若已行权而没有足够的strike asset，则转换为underlying asset返回给调用方
     //amount: underlying asset的数量
     function exercise(uint256 amount) external notExpired {
-        uint256 underlyingAmount = amount * 10**uint256(underlyingAssetDecimal);
+        uint256 underlyingAmount = amount *
+            (10**uint256(underlyingAssetDecimal));
         require(
             underlyingAsset.transferFrom(
                 msg.sender,
@@ -195,22 +198,6 @@ contract NsurePutToken is ERC20, ERC20Detailed, ReentrancyGuard, Storage {
             );
         }
     }
-
-    //Current Profit and Loss: strikePrice - spotPrice - premiumPrice
-    // function curProfitAndLoss(uint256 spotPrice, uint256 premiumPrice)
-    //     external
-    //     alreadyExpired
-    //     returns (int256)
-    // {
-    //     int256 pnl = 0;
-    //     if (strikePrice >= spotPrice.add(premiumPrice)) {
-    //         pnl = strikePrice.sub(spotPrice).sub(premiumPrice);
-    //     } else {
-    //         pnl = spotPrice.add(premiumPrice).sub(strikePrice).mul(-1);
-    //     }
-
-    //     return pnl;
-    // }
 
     function _hasExpired() internal view returns (bool) {
         return block.number >= expirationBlockNumber;

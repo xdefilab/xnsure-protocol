@@ -38,7 +38,7 @@ xNsure provide AMM European call and put options by introducing AMM tools to non
     -   将NsurePutToken上架uniswap
     -   添加流动性池: 定价 NsurePutToken:WETH = 0.1
 
-3. (可选?)minter可以收回期权产品Token
+3. (只有minte可以，buyer不可以)minter收回期权产品Token
    -    支付NsurePutToken, n个
    -    返回USDC, m个
    -    比例 m/n = StrikePrice

@@ -6,17 +6,18 @@ import "./NsureCallToken.sol";
 import "./Storage.sol";
 
 contract OptionController is Storage {
+    address public core;
+
     struct Option {
-        uint256 deadline;
-        uint256 target;
-        uint256 optionAmountPerStrike;
-        address optionAddress;
-        //should be ORDER_OPTION_CALL or ORDER_OPTION_PUT
-        uint256 orderDirection;
+        uint256 deadline; //expiration block number
+        uint256 target; //targe price
+        uint256 optionAmountPerStrike; //1个行使资产可以创建多少个期权
+        uint256 orderDirection; //should be ORDER_OPTION_CALL or ORDER_OPTION_PUT
     }
 
-    uint256[] public deadlines; // 可选的清算截止日期
+    uint256[] public deadlines; // 可选的清算截止block number
     uint256[] public targets; // 可选的清算目标金额
+
     address public underlyingAsset;
     address public strikeAsset;
 
@@ -24,20 +25,30 @@ contract OptionController is Storage {
 
     mapping(bytes32 => Option) public options; // 根据日期和价格确定期权
 
+    event Pause(address indexed user);
+    event Unpause(address indexed user);
+    event Emergency(address indexed user);
+
+    modifier onlyCore() {
+        require(msg.sender == core, "Not Authorized, Only Core");
+        _;
+    }
+
+    constructor(address _uniswap) public {
+        core = msg.sender;
+        uniswap = _uniswap;
+    }
+
     /*******************  期权参数配置 *****************/
+    function setDeadline() public onlyCore {}
 
-    // onlyOwner
-    function setDeadline() public {}
+    function setTarget() public onlyCore {}
 
-    // onlyOwner
-    function setTarget() public {}
-
-    // onlyOwner
-    function setOptionRate(uint256 rate) public {
+    function setOptionRate(uint256 rate) public onlyCore {
         optionAmountPerStrike = rate;
     }
 
-    function setUniswap() public {}
+    function setUniswap() public onlyCore {}
 
     function getDeadlines() public view returns (uint256[] memory) {
         return deadlines;
@@ -52,8 +63,7 @@ contract OptionController is Storage {
     }
 
     /*******************  创建期权 *****************/
-
-    // TODO：判断deadline 和 target是否合法
+    //判断deadline 和 target是否合法
     modifier validParamers(uint256 _deadline, uint256 _target) {
         require(
             _deadline > block.number,
@@ -75,7 +85,6 @@ contract OptionController is Storage {
         address optionAddress = options[salt].optionAddress;
         if (optionAddress == address(0)) {
             //TODO: uint256 to string
-
             NsureCallToken callToken = new NsureCallToken(
                 "NsureCallToken",
                 "CALL",
@@ -146,4 +155,22 @@ contract OptionController is Storage {
     function getAmountsIn() public {}
 
     function getAmountsOn() public {}
+
+    function pause() external onlyCore {
+        require(!systemPaused, "ERROR: already paused");
+        systemPaused = true;
+        emit Pause(msg.sender);
+    }
+
+    function unpause() external onlyCore {
+        require(systemPaused, "ERROR: not paused");
+        systemPaused = false;
+        emit Unpause(msg.sender);
+    }
+
+    function setEmergency() external onlyCore {
+        systemPaused = true;
+        systemStatus = STATUS_EMERGENCY;
+        emit Emergency(msg.sender);
+    }
 }

@@ -13,4 +13,7 @@ contract Storage is Constants {
     address public safuAddress;
     //SAFU balance
     int256 public safuBalance;
+
+    //1个行使资产可以创建多少个期权
+    uint256 public optionAmountPerStrike = 5;
 }

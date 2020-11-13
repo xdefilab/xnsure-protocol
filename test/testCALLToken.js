@@ -1,8 +1,8 @@
 const { expectRevert, time } = require('@openzeppelin/test-helpers');
 const MockERC20 = artifacts.require('MockToken');
-const OptionFunction = artifacts.require('OptionFunction');
+const NsureCallToken = artifacts.require('NsureCallToken');
 
-contract('OptionFunction', ([alice, bob, carol, minter]) => {
+contract('NsureCallToken', ([alice, bob, carol, minter]) => {
     beforeEach(async () => {
         //1000
         this.weth = await MockERC20.new('WETHToken', 'WETH', '1000000000000000000000', { from: minter });
@@ -15,8 +15,7 @@ contract('OptionFunction', ([alice, bob, carol, minter]) => {
     });
 
     it('should get correct variables', async () => {
-        this.option = await OptionFunction.new();
-        await this.option.initialize(minter, this.weth.address, this.dai.address, '1000000000000000000', 5, 50);
+        this.option = await NsureCallToken.new("NsureCallToken", "CALL", minter, this.weth.address, 18, this.dai.address, 18, '1000000000000000000', 50);
 
         const decimals = await this.option.decimals();
         assert.equal(decimals.valueOf(), '18');

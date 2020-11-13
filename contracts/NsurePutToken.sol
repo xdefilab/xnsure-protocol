@@ -17,12 +17,12 @@ contract NsurePutToken is ERC20, ERC20Detailed, ReentrancyGuard, Storage {
     //基础资产, WETH
     IERC20 public underlyingAsset;
     //基础资产位数
-    uint256 public underlyingAssetDecimal;
+    uint256 public underlyingAssetDecimals;
 
     //行使资产, DAI
     IERC20 public strikeAsset;
     //行使资产位数
-    uint256 public strikeAssetDecimal;
+    uint256 public strikeAssetDecimals;
 
     //行使价格
     uint256 public strikePrice;
@@ -31,7 +31,7 @@ contract NsurePutToken is ERC20, ERC20Detailed, ReentrancyGuard, Storage {
     bool public isPublic = false;
 
     //put option
-    uint8 public orderDirection = ORDER_OPTION_PUT;
+    uint256 public orderDirection = ORDER_OPTION_PUT;
 
     //vault
     //key: user, value: strike asset数量
@@ -45,20 +45,20 @@ contract NsurePutToken is ERC20, ERC20Detailed, ReentrancyGuard, Storage {
         //标的资产
         IERC20 _underlyingAsset,
         //标的资产位数
-        uint8 _underlyingAssetDecimal,
+        uint8 _underlyingAssetDecimals,
         //行使资产
         IERC20 _strikeAsset,
         //行使资产位数
-        uint8 _strikeAssetDecimal,
+        uint8 _strikeAssetDecimals,
         //行使价格
         uint256 _strikePrice,
         //到期块数
         uint256 _expirationBlockNumber
     ) public ERC20Detailed(_name, _symbol, 18) {
         underlyingAsset = _underlyingAsset;
-        underlyingAssetDecimal = _underlyingAssetDecimal;
+        underlyingAssetDecimals = _underlyingAssetDecimals;
         strikeAsset = _strikeAsset;
-        strikeAssetDecimal = _strikeAssetDecimal;
+        strikeAssetDecimals = _strikeAssetDecimals;
         strikePrice = _strikePrice;
         expirationBlockNumber = _expirationBlockNumber;
     }
@@ -119,8 +119,9 @@ contract NsurePutToken is ERC20, ERC20Detailed, ReentrancyGuard, Storage {
     //若已行权而没有足够的strike asset，则转换为underlying asset返回给调用方
     //amount: NsurePutToken数量
     function exercise(uint256 amount) external notExpired {
-        uint256 underlyingAmount = amount *
-            (10**uint256(underlyingAssetDecimal));
+        uint256 underlyingAmount = amount.mul(
+            10**uint256(underlyingAssetDecimals)
+        );
 
         emit LOG1(underlyingAmount, "underlyingAmount");
 
@@ -163,7 +164,7 @@ contract NsurePutToken is ERC20, ERC20Detailed, ReentrancyGuard, Storage {
 
             uint256 underlyingAmount = amount - strikeAmount;
             underlyingToReceive = underlyingAmount.mul(
-                10**uint256(underlyingAssetDecimal)
+                10**uint256(underlyingAssetDecimals)
             );
         }
 

@@ -1,17 +1,23 @@
 pragma solidity 0.5.17;
 
-import "./OptionToken.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20Detailed.sol";
+import "@openzeppelin/contracts/math/SafeMath.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
 import "./Storage.sol";
 
-contract OptionFunction is OptionToken, Storage {
-    address public core;
-    bool public initialized;
+contract NsureCallToken is ERC20, ERC20Detailed, ReentrancyGuard, Storage {
+    using SafeMath for uint256;
 
-    //标的资产
+    address public core;
+
+    //标的资产: WETH
     address public underlyingAsset;
     uint256 public underlyingAssetDecimals;
 
-    //行使资产
+    //行使资产: DAI
     address public strikeAsset;
     uint256 public strikeAssetDecimals;
 
@@ -31,8 +37,7 @@ contract OptionFunction is OptionToken, Storage {
     // 期权记录
     uint256 public totalOptions;
 
-    //1个行使资产可以创建多少个期权
-    uint256 public optionAmountPerStrike;
+    uint256 callTokenDecimals = 18;
 
     //key: seller, value: option token amount
     mapping(address => uint256) public sellerOption;
@@ -60,36 +65,26 @@ contract OptionFunction is OptionToken, Storage {
         _;
     }
 
-    function initialize(
+    constructor(
+        string memory _name,
+        string memory _symbol,
         address _core,
         address _underlyingAsset,
+        uint8 _underlyingAssetDecimals,
         address _strikeAsset,
+        uint8 _strikeAssetDecimals,
         uint256 _targetPrice,
-        uint256 _optionAmountPerStrike,
         uint256 _expirationBlockNumber
-    ) public {
-        require(!initialized, "Error: have initialized");
-
-        initialized = true;
-
+    ) public ERC20Detailed(_name, _symbol, 18) {
         core = _core;
 
         underlyingAsset = _underlyingAsset;
-        if (underlyingAsset == address(0)) {
-            decimals = 18;
-        } else {
-            underlyingAssetDecimals = IERC20(_underlyingAsset).decimals();
-        }
+        underlyingAssetDecimals = _underlyingAssetDecimals;
 
         strikeAsset = _strikeAsset;
-        if (strikeAsset == address(0)) {
-            decimals = 18;
-        } else {
-            decimals = IERC20(strikeAsset).decimals();
-        }
+        strikeAssetDecimals = _strikeAssetDecimals;
 
         targetPrice = _targetPrice;
-        optionAmountPerStrike = _optionAmountPerStrike;
         expirationBlockNumber = _expirationBlockNumber;
     }
 
@@ -98,19 +93,20 @@ contract OptionFunction is OptionToken, Storage {
     }
 
     // 管理员结算期间不允许交易
-    function _transfer(
-        address from,
-        address to,
-        uint256 value
-    ) internal {
-        require(
-            _exerciseStatus() != 1,
-            "Error: can not transfer in exercise period"
-        );
-        balanceOf[from] = balanceOf[from].sub(value);
-        balanceOf[to] = balanceOf[to].add(value);
-        emit Transfer(from, to, value);
-    }
+    // TODO: check transferFrom()
+    // function _transfer(
+    //     address from,
+    //     address to,
+    //     uint256 value
+    // ) internal {
+    //     require(
+    //         _exerciseStatus() != 1,
+    //         "Error: can not transfer in exercise period"
+    //     );
+    //     balanceOf[from] = balanceOf[from].sub(value);
+    //     balanceOf[to] = balanceOf[to].add(value);
+    //     emit Transfer(from, to, value);
+    // }
 
     // 铸造期权
     function mint(address user, uint256 _strikeAssetAmount)
@@ -137,7 +133,7 @@ contract OptionFunction is OptionToken, Storage {
 
         uint256 optionAmount = _strikeAssetAmount
             .mul(strikeAssetAmountPerOption)
-            .div(decimals);
+            .div(callTokenDecimals);
         sellerOption[user] = sellerOption[user].add(optionAmount);
         totalOptions = totalOptions.add(optionAmount);
         _mint(user, optionAmount);
@@ -162,12 +158,13 @@ contract OptionFunction is OptionToken, Storage {
                     ? maxUnderlyingAssetmountPerOption
                     : actUnderlyingAssetAmountPerOption
             );
-            strikeAssetAmountPerOption = strikePrice.mul(decimals).div(
+
+            strikeAssetAmountPerOption = strikePrice.mul(callTokenDecimals).div(
                 underlyingAssetAmountPerOption
             );
-            expirableStrikeAssetAmount = totalSupply
+            expirableStrikeAssetAmount = totalSupply()
                 .mul(strikeAssetAmountPerOption)
-                .div(decimals);
+                .div(callTokenDecimals);
         }
         redeemableStrikeAssetAmount = address(this).balance.sub(
             expirableStrikeAssetAmount
@@ -183,7 +180,7 @@ contract OptionFunction is OptionToken, Storage {
         // 使用期权赎回strikeAsset，任何人只要有期权就可以赎回
         uint256 strikeAssetAmount = _optionAmount
             .mul(strikeAssetAmountPerOption)
-            .div(decimals);
+            .div(callTokenDecimals);
         // 如果是创建者，返回剩余的strikeAsset
         uint256 createdOption = sellerOption[user];
         if (createdOption > 0) {

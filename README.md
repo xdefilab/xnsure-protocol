@@ -26,7 +26,7 @@ xNsure provide AMM European call and put options by introducing AMM tools to non
 
 #### 合约到期
 
--   到期前: 可以 mint() / burn() / exercise()行权  (*注：可能不考虑burn*)
+-   到期前: 可以 mint() / burn() / exercise()行权  (*注：不考虑burn*)
 -   到期后: 可以withdraw()赎回
 
 #### 流程

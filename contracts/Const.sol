@@ -8,6 +8,6 @@ contract Constants {
     uint8 public constant STATUS_EMERGENCY = 1;
 
     //order direction
-    uint8 public constant ORDER_OPTION_CALL = 11;
-    uint8 public constant ORDER_OPTION_PUT = 12;
+    uint256 public constant ORDER_OPTION_CALL = 11;
+    uint256 public constant ORDER_OPTION_PUT = 12;
 }

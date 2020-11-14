@@ -1064,9 +1064,11 @@ contract OptionController is Storage {
         _;
     }
 
-    constructor(address _uniswapOption) public {
+    constructor(address _uniswapOption, address _strikeAsset, address _underlyingAsset) public {
         core = msg.sender;
         uniswapOption = _uniswapOption;
+        strikeAsset = _strikeAsset;
+        underlyingAsset = _underlyingAsset;
     }
 
     /*******************  期权参数配置 *****************/
@@ -1080,6 +1082,14 @@ contract OptionController is Storage {
 
     function setUniswapSpots(address _uniswapSpots) public onlyCore {
         uniswapSpots = _uniswapSpots;
+    }
+
+    function setStrikeAsset(address _strikeAsset) public onlyCore {
+        strikeAsset = _strikeAsset;
+    }
+
+    function setUnderlyingAsset(address _underlyingAsset) public onlyCore {
+        underlyingAsset = _underlyingAsset;
     }
 
     function setDeadline(uint[] memory _deadlines) public onlyCore {

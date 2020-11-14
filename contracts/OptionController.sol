@@ -25,7 +25,6 @@ contract OptionController is Storage {
 
     uint256[] public deadlines; // 可选的清算截止block number
     uint256[] public targets; // 可选的清算目标金额
-    uint public optionRate;
 
     address public underlyingAsset;
     address public strikeAsset;
@@ -54,8 +53,8 @@ contract OptionController is Storage {
     }
 
     /*******************  期权参数配置 *****************/
-    function setOptionRate(uint _optionRate) public onlyCore {
-        optionRate = _optionRate;
+    function setOptionAmountPerStrike(uint _optionAmountPerStrike) public onlyCore {
+        optionAmountPerStrike = _optionAmountPerStrike;
     }
 
     function setUniswapOption(address _uniswapOption) public onlyCore {
@@ -110,8 +109,15 @@ contract OptionController is Storage {
         return targets;
     }
 
-    function getOptionRate() public view returns (uint256) {
+    function getOptionAmountPerStrike() public view returns (uint256) {
         return optionAmountPerStrike;
+    }
+
+    // test
+    function setExpirationBlockNumber(uint256 _deadline, uint256 _target, uint256 _expirationBlockNumber) public {
+        address optionAddress = getOptionAddress(_deadline, _target);
+        require(optionAddress != address(0), "Error: option not exist.");
+        NsureCallToken(optionAddress).setExpirationBlockNumber(_expirationBlockNumber);
     }
 
     /*******************  创建期权 *****************/
@@ -412,5 +418,7 @@ contract OptionController is Storage {
         systemStatus = STATUS_EMERGENCY;
         emit Emergency(msg.sender);
     }
+
+    
 
 }

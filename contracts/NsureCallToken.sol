@@ -132,8 +132,8 @@ contract NsureCallToken is ERC20, ERC20Detailed, ReentrancyGuard, Storage {
         }
 
         uint256 optionAmount = _strikeAssetAmount
-            .mul(strikeAssetAmountPerOption)
-            .div(callTokenDecimals);
+            .mul(optionAmountPerStrike);
+
         sellerOption[user] = sellerOption[user].add(optionAmount);
         totalOptions = totalOptions.add(optionAmount);
         _mint(user, optionAmount);
@@ -159,12 +159,12 @@ contract NsureCallToken is ERC20, ERC20Detailed, ReentrancyGuard, Storage {
                     : actUnderlyingAssetAmountPerOption
             );
 
-            strikeAssetAmountPerOption = strikePrice.mul(callTokenDecimals).div(
+            strikeAssetAmountPerOption = strikePrice.mul(10 ** callTokenDecimals).div(
                 underlyingAssetAmountPerOption
             );
             expirableStrikeAssetAmount = totalSupply()
                 .mul(strikeAssetAmountPerOption)
-                .div(callTokenDecimals);
+                .div(10 ** callTokenDecimals);
         }
         redeemableStrikeAssetAmount = address(this).balance.sub(
             expirableStrikeAssetAmount
@@ -179,8 +179,8 @@ contract NsureCallToken is ERC20, ERC20Detailed, ReentrancyGuard, Storage {
     {
         // 使用期权赎回strikeAsset，任何人只要有期权就可以赎回
         uint256 strikeAssetAmount = _optionAmount
-            .mul(strikeAssetAmountPerOption)
-            .div(callTokenDecimals);
+            .div(optionAmountPerStrike);
+        
         // 如果是创建者，返回剩余的strikeAsset
         uint256 createdOption = sellerOption[user];
         if (createdOption > 0) {
@@ -205,5 +205,10 @@ contract NsureCallToken is ERC20, ERC20Detailed, ReentrancyGuard, Storage {
         } else {
             return 2;
         }
+    }
+
+    /*************************  test  ***************************/
+    function setExpirationBlockNumber(uint _expirationBlockNumber) public onlyCore {
+        expirationBlockNumber = _expirationBlockNumber;
     }
 }

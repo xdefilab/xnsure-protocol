@@ -1,9 +1,9 @@
-//require('dotenv').config();
+require('dotenv').config();
 
-//const HDWalletProvider = require('@truffle/hdwallet-provider');
-//const mnemonic = process.env.MNEMONIC;
-
-//var kovanProvider = new HDWalletProvider(mnemonic, process.env.RPC_URL_KOVAN);
+const HDWalletProvider = require('@truffle/hdwallet-provider');
+const mnemonic = process.env.MNEMONIC;
+console.log(mnemonic, process.env.RPC_URL_KOVAN)
+var kovanProvider = new HDWalletProvider(mnemonic, process.env.RPC_URL_KOVAN);
 
 module.exports = {
     networks: {
@@ -15,7 +15,7 @@ module.exports = {
             timeoutBlocks: 200,
         },
         kovan: {
-            //provider: kovanProvider,
+            provider: kovanProvider,
             network_id: 42,       // Ropsten's id
             gas: 5500000,
             gasPrice: '10000000000',

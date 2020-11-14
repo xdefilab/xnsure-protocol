@@ -13,11 +13,11 @@ contract NsureCallToken is ERC20, ERC20Detailed, ReentrancyGuard, Storage {
 
     address public core;
 
-    //标的资产: WETH
+    //标的资产: DAI
     address public underlyingAsset;
     uint256 public underlyingAssetDecimals;
 
-    //行使资产: DAI
+    //行使资产: ETH
     address public strikeAsset;
     uint256 public strikeAssetDecimals;
 

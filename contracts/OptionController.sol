@@ -1,11 +1,17 @@
 pragma solidity 0.5.17;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/math/SafeMath.sol";
+
+import "./interfaces/IUniswapV2Router02.sol";
+import "./interfaces/IUniswapV2Factory.sol";
+
 import "./NsureCallToken.sol";
 
 import "./Storage.sol";
 
 contract OptionController is Storage {
+    using SafeMath for uint256;
     address public core;
 
     struct Option {
@@ -13,18 +19,22 @@ contract OptionController is Storage {
         uint256 target; //targe price
         uint256 optionAmountPerStrike; //1个行使资产可以创建多少个期权
         address optionAddress;
+        address underlyingAssetAddress;
         uint256 orderDirection; //should be ORDER_OPTION_CALL or ORDER_OPTION_PUT
     }
 
     uint256[] public deadlines; // 可选的清算截止block number
     uint256[] public targets; // 可选的清算目标金额
+    uint public optionRate;
 
     address public underlyingAsset;
     address public strikeAsset;
 
     address public uniswap;
 
-    mapping(bytes32 => Option) public options; // 根据日期和价格确定期权
+    mapping(bytes32 => Option) public options;  // 根据日期和价格确定期权
+    mapping(uint => bool) public inDeadline;    // deadline 是否合法
+    mapping(uint => bool) public inTargets;     // target 是否合法
 
     event Pause(address indexed user);
     event Unpause(address indexed user);
@@ -41,15 +51,41 @@ contract OptionController is Storage {
     }
 
     /*******************  期权参数配置 *****************/
-    function setDeadline() public onlyCore {}
-
-    function setTarget() public onlyCore {}
-
-    function setOptionRate(uint256 rate) public onlyCore {
-        optionAmountPerStrike = rate;
+    function setOptionRate(uint _optionRate) public onlyCore {
+        optionRate = _optionRate;
     }
 
-    function setUniswap() public onlyCore {}
+    function setUniswap(address _uniswap) public onlyCore {
+        uniswap = _uniswap;
+    }
+
+    function setDeadline(uint[] memory _deadlines) public onlyCore {
+        uint length = deadlines.length;
+        for (uint i = 0; i< length; i++) {
+            inDeadline[deadlines[i]] = false;
+        }
+        
+        length = _deadlines.length;
+        for (uint i = 0; i< length; i++) {
+            inDeadline[_deadlines[i]] = true;
+        }
+
+        deadlines = _deadlines;
+    }
+
+    function setTarget(uint[] memory _target) public onlyCore {
+        uint length = targets.length;
+        for (uint i = 0; i< length; i++) {
+            inTargets[targets[i]] = false;
+        }
+        
+        length = _target.length;
+        for (uint i = 0; i< length; i++) {
+            inTargets[_target[i]] = true;
+        }
+
+        targets = _target;
+    }
 
     function getDeadlines() public view returns (uint256[] memory) {
         return deadlines;
@@ -69,6 +105,10 @@ contract OptionController is Storage {
         require(
             _deadline > block.number,
             "ERROR: deadline before block.number"
+        );
+        require(
+            inDeadline[_deadline] && inTargets[_target], 
+            "Error: invalid deadline or target!"
         );
         _;
     }
@@ -105,6 +145,7 @@ contract OptionController is Storage {
                 _target,
                 optionAmountPerStrike,
                 optionAddress,
+                underlyingAsset,
                 ORDER_OPTION_CALL
             );
         }
@@ -120,15 +161,27 @@ contract OptionController is Storage {
         uint256 _deadline,
         uint256 _target,
         uint256 _optionAmount
-    ) public {}
+    ) public {
+
+        address optionAddress = getOptionAddress(_deadline, _target);
+        require(optionAddress != address(0), "Error: option not exist.");
+        
+        NsureCallToken(optionAddress).redeem(msg.sender, _optionAmount);
+    }
 
     // 管理员推送价格并行权清算
     function exercise(
         uint256 _deadline,
-        uint256 _target,
-        uint256 amount
+        uint256 _target
     ) public {
-        // 判断是否在行权期间
+        address optionAddress = getOptionAddress(_deadline, _target);
+        require(optionAddress != address(0), "Error: option not exist.");
+        
+        address underlyingAddress = NsureCallToken(optionAddress).underlyingAsset();
+        uint expirationBlockNumber = NsureCallToken(optionAddress).expirationBlockNumber();
+        uint price = _getPrice(optionAddress, underlyingAddress, expirationBlockNumber);
+       
+        NsureCallToken(optionAddress).exercise(price);
     }
 
     /*********************** 查询代币信息封装 **************************/
@@ -137,26 +190,199 @@ contract OptionController is Storage {
     function getOptionAddress(uint256 _deadline, uint256 _target)
         public
         view
-        returns (address optionAddress)
+        returns (address)
     {
         bytes32 salt = keccak256(abi.encodePacked(_deadline, _target));
-        optionAddress = options[salt].optionAddress;
+        return options[salt].optionAddress;
     }
 
-    // 根据地址查询代币 deadline target等信息
+    // 查期权underlyingAsset
+    function getOptionUnderlyingAsset(uint256 _deadline, uint256 _target) 
+        public
+        view
+        returns (address) 
+    {
+        bytes32 salt = keccak256(abi.encodePacked(_deadline, _target));
+        return options[salt].underlyingAssetAddress;
+    }
+
+    // 查期权余额
+    function getOptionBalance(uint256 _deadline, uint256 _target, address _user)
+        public
+        view
+        returns (uint) 
+    {
+        address optionAddress = getOptionAddress(_deadline, _target);
+        require(optionAddress != address(0), "Error: option not exist.");
+
+        return IERC20(optionAddress).balanceOf(_user);
+
+    }
+
+    // 查询期权的LP的地址
+    function getOptionLPAddress(uint256 _deadline, uint256 _target)
+        public
+        view
+        returns (address)
+    {
+        address optionAddress = getOptionAddress(_deadline, _target);
+        require(optionAddress != address(0), "Error: option not exist.");
+        address underlyingAssetAddress = NsureCallToken(optionAddress).underlyingAsset();
+
+        address factory = IUniswapV2Router02(uniswap).factory();
+        return IUniswapV2Factory(factory).getPair(optionAddress, underlyingAssetAddress);
+    }
+
+    // 查询期权LP的余额
+    function getOptionLPBalance(uint256 _deadline, uint256 _target, address _user) 
+        public
+        view
+        returns (uint) 
+    {
+        address optionAddress = getOptionAddress(_deadline, _target);
+        require(optionAddress != address(0), "Error: option not exist.");
+        address underlyingAssetAddress = NsureCallToken(optionAddress).underlyingAsset();
+
+        address factory = IUniswapV2Router02(uniswap).factory();
+        address lpAddress = IUniswapV2Factory(factory).getPair(optionAddress, underlyingAssetAddress);
+
+        return IERC20(lpAddress).balanceOf(_user);
+    }
 
     /*********************** uniswap 封装 **************************/
 
-    function addLiquidity() public {}
+    function addLiquidity(
+        uint _deadline,
+        uint _target,
+        uint _optionDesired,
+        uint _underlyingAssetDesired,
+        uint _optionMin,
+        uint _underlyingAssetMin
+    ) public validParamers(_deadline, _target) returns (uint amountA, uint amountB, uint liquidity) {
+        
+        address optionAddress = getOptionAddress(_deadline, _target);
+        require(optionAddress != address(0), "Error: option not exist.");
+        address underlyingAssetAddress = NsureCallToken(optionAddress).underlyingAsset();
 
-    function revomeLiquidity() public {}
+        return IUniswapV2Router02(uniswap).addLiquidity(optionAddress, underlyingAssetAddress, _optionDesired, _underlyingAssetDesired, _optionMin, _underlyingAssetMin, msg.sender, block.number.add(1800));
+    }
 
-    function swap() public {}
+    function revomeLiquidity(
+        uint _deadline,
+        uint _target,
+        uint _liquidity,
+        uint _optionMin,
+        uint _underlyingAssetMin
+    ) public returns (uint amountA, uint amountB) {
+        
+        address optionAddress = getOptionAddress(_deadline, _target);
+        require(optionAddress != address(0), "Error: option not exist.");
 
-    function getAmountsIn() public {}
+        address underlyingAssetAddress = NsureCallToken(optionAddress).underlyingAsset();
 
-    function getAmountsOn() public {}
+        return IUniswapV2Router02(uniswap).removeLiquidity(optionAddress, underlyingAssetAddress, _liquidity, _optionMin, _underlyingAssetMin, msg.sender, block.number.add(1800));
+    }
 
+    // type == 0 is buy option
+    // type == 1 is sell option
+    function swap(
+        uint _deadline,
+        uint _target,
+        uint _type,
+        uint _amountIn,
+        uint _amountOutMin
+    ) public returns (uint[] memory amounts) {
+        
+        require(_type == 0 || _type == 1, "Error: invalid type");
+        
+        address optionAddress = getOptionAddress(_deadline, _target);
+        require(optionAddress != address(0), "Error: option not exist.");
+        address underlyingAssetAddress = NsureCallToken(optionAddress).underlyingAsset();
+        
+        address[] memory path = new address[](2);
+        if (_type == 0) {
+            path[0] = underlyingAssetAddress;
+            path[1] = optionAddress;
+        } else {
+            path[0] = optionAddress;
+            path[1] = underlyingAssetAddress;
+        }
+         
+        return IUniswapV2Router02(uniswap).swapExactTokensForTokens(_amountIn, _amountOutMin, path, msg.sender, block.number.add(1800));
+    }
+
+    // 想要得到指定数量的underlyingAsset，需要输入多少option
+    function getOptionIn(
+        uint _deadline,
+        uint _target,
+        uint _amountOut
+    ) public view returns (uint d) {
+
+        address optionAddress = getOptionAddress(_deadline, _target);
+        require(optionAddress != address(0), "Error: option not exist.");
+        address underlyingAssetAddress = NsureCallToken(optionAddress).underlyingAsset();
+
+        address[] memory path = new address[](2);
+        path[0] = optionAddress;
+        path[1] = underlyingAssetAddress;
+        
+        return IUniswapV2Router02(uniswap).getAmountsIn(_amountOut, path)[0];
+    }
+
+    // 输入指定数量的underlyingAsset，可以得到多少option
+    function getOptionOut(
+        uint _deadline,
+        uint _target,
+        uint _amountIn
+    ) public view returns (uint d) {
+
+        address optionAddress = getOptionAddress(_deadline, _target);
+        require(optionAddress != address(0), "Error: option not exist.");
+        address underlyingAssetAddress = NsureCallToken(optionAddress).underlyingAsset();
+
+        address[] memory path = new address[](2);
+        path[0] = underlyingAssetAddress;
+        path[1] = optionAddress;
+        
+        return IUniswapV2Router02(uniswap).getAmountsOut(_amountIn, path)[1];
+    }
+
+    // 想要得到指定数量的option，需要输入多少underlyingAsset
+    function getUnderlyingIn(
+        uint _deadline,
+        uint _target,
+        uint _amountOut
+    ) public view returns (uint d) {
+
+        address optionAddress = getOptionAddress(_deadline, _target);
+        require(optionAddress != address(0), "Error: option not exist.");
+        address underlyingAssetAddress = NsureCallToken(optionAddress).underlyingAsset();
+
+        address[] memory path = new address[](2);
+        path[0] = underlyingAssetAddress;
+        path[1] = optionAddress;
+        
+        return IUniswapV2Router02(uniswap).getAmountsIn(_amountOut, path)[0];
+    }
+
+    // 输入指定数量的option，可以得到多少underlyingAsset
+    function getUnderlyingOut(
+        uint _deadline,
+        uint _target,
+        uint _amountIn
+    ) public view returns (uint d) {
+
+        address optionAddress = getOptionAddress(_deadline, _target);
+        require(optionAddress != address(0), "Error: option not exist.");
+        address underlyingAssetAddress = NsureCallToken(optionAddress).underlyingAsset();
+
+        address[] memory path = new address[](2);
+        path[0] = optionAddress;
+        path[1] = underlyingAssetAddress;
+        
+        return IUniswapV2Router02(uniswap).getAmountsOut(_amountIn, path)[1];
+    }
+    
     function pause() external onlyCore {
         require(!systemPaused, "ERROR: already paused");
         systemPaused = true;
@@ -173,5 +399,9 @@ contract OptionController is Storage {
         systemPaused = true;
         systemStatus = STATUS_EMERGENCY;
         emit Emergency(msg.sender);
+    }
+
+    function _getPrice(address _tokenA, address _tokenB, uint _blockNumber) internal returns(uint) {
+        return 0;
     }
 }

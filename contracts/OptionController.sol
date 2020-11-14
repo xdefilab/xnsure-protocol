@@ -30,8 +30,9 @@ contract OptionController is Storage {
     address public underlyingAsset;
     address public strikeAsset;
 
-    address public uniswap;
-
+    address public uniswapOption;
+    address public uniswapSpots;
+    
     mapping(bytes32 => Option) public options;  // 根据日期和价格确定期权
     mapping(uint => bool) public inDeadline;    // deadline 是否合法
     mapping(uint => bool) public inTargets;     // target 是否合法
@@ -45,9 +46,9 @@ contract OptionController is Storage {
         _;
     }
 
-    constructor(address _uniswap) public {
+    constructor(address _uniswapOption) public {
         core = msg.sender;
-        uniswap = _uniswap;
+        uniswapOption = _uniswapOption;
     }
 
     /*******************  期权参数配置 *****************/
@@ -55,8 +56,12 @@ contract OptionController is Storage {
         optionRate = _optionRate;
     }
 
-    function setUniswap(address _uniswap) public onlyCore {
-        uniswap = _uniswap;
+    function setUniswapOption(address _uniswapOption) public onlyCore {
+        uniswapOption = _uniswapOption;
+    }
+
+    function setUniswapSpots(address _uniswapSpots) public onlyCore {
+        uniswapSpots = _uniswapSpots;
     }
 
     function setDeadline(uint[] memory _deadlines) public onlyCore {
@@ -172,16 +177,13 @@ contract OptionController is Storage {
     // 管理员推送价格并行权清算
     function exercise(
         uint256 _deadline,
-        uint256 _target
-    ) public {
+        uint256 _target,
+        uint256 _price
+    ) public onlyCore {
         address optionAddress = getOptionAddress(_deadline, _target);
         require(optionAddress != address(0), "Error: option not exist.");
-        
-        address underlyingAddress = NsureCallToken(optionAddress).underlyingAsset();
-        uint expirationBlockNumber = NsureCallToken(optionAddress).expirationBlockNumber();
-        uint price = _getPrice(optionAddress, underlyingAddress, expirationBlockNumber);
-       
-        NsureCallToken(optionAddress).exercise(price);
+               
+        NsureCallToken(optionAddress).exercise(_price);
     }
 
     /*********************** 查询代币信息封装 **************************/
@@ -229,7 +231,7 @@ contract OptionController is Storage {
         require(optionAddress != address(0), "Error: option not exist.");
         address underlyingAssetAddress = NsureCallToken(optionAddress).underlyingAsset();
 
-        address factory = IUniswapV2Router02(uniswap).factory();
+        address factory = IUniswapV2Router02(uniswapOption).factory();
         return IUniswapV2Factory(factory).getPair(optionAddress, underlyingAssetAddress);
     }
 
@@ -243,13 +245,13 @@ contract OptionController is Storage {
         require(optionAddress != address(0), "Error: option not exist.");
         address underlyingAssetAddress = NsureCallToken(optionAddress).underlyingAsset();
 
-        address factory = IUniswapV2Router02(uniswap).factory();
+        address factory = IUniswapV2Router02(uniswapOption).factory();
         address lpAddress = IUniswapV2Factory(factory).getPair(optionAddress, underlyingAssetAddress);
 
         return IERC20(lpAddress).balanceOf(_user);
     }
 
-    /*********************** uniswap 封装 **************************/
+    /*********************** uniswapOption 封装 **************************/
 
     function addLiquidity(
         uint _deadline,
@@ -264,7 +266,7 @@ contract OptionController is Storage {
         require(optionAddress != address(0), "Error: option not exist.");
         address underlyingAssetAddress = NsureCallToken(optionAddress).underlyingAsset();
 
-        return IUniswapV2Router02(uniswap).addLiquidity(optionAddress, underlyingAssetAddress, _optionDesired, _underlyingAssetDesired, _optionMin, _underlyingAssetMin, msg.sender, block.number.add(1800));
+        return IUniswapV2Router02(uniswapOption).addLiquidity(optionAddress, underlyingAssetAddress, _optionDesired, _underlyingAssetDesired, _optionMin, _underlyingAssetMin, msg.sender, block.number.add(1800));
     }
 
     function revomeLiquidity(
@@ -280,7 +282,7 @@ contract OptionController is Storage {
 
         address underlyingAssetAddress = NsureCallToken(optionAddress).underlyingAsset();
 
-        return IUniswapV2Router02(uniswap).removeLiquidity(optionAddress, underlyingAssetAddress, _liquidity, _optionMin, _underlyingAssetMin, msg.sender, block.number.add(1800));
+        return IUniswapV2Router02(uniswapOption).removeLiquidity(optionAddress, underlyingAssetAddress, _liquidity, _optionMin, _underlyingAssetMin, msg.sender, block.number.add(1800));
     }
 
     // type == 0 is buy option
@@ -308,7 +310,7 @@ contract OptionController is Storage {
             path[1] = underlyingAssetAddress;
         }
          
-        return IUniswapV2Router02(uniswap).swapExactTokensForTokens(_amountIn, _amountOutMin, path, msg.sender, block.number.add(1800));
+        return IUniswapV2Router02(uniswapOption).swapExactTokensForTokens(_amountIn, _amountOutMin, path, msg.sender, block.number.add(1800));
     }
 
     // 想要得到指定数量的underlyingAsset，需要输入多少option
@@ -326,7 +328,7 @@ contract OptionController is Storage {
         path[0] = optionAddress;
         path[1] = underlyingAssetAddress;
         
-        return IUniswapV2Router02(uniswap).getAmountsIn(_amountOut, path)[0];
+        return IUniswapV2Router02(uniswapOption).getAmountsIn(_amountOut, path)[0];
     }
 
     // 输入指定数量的underlyingAsset，可以得到多少option
@@ -344,7 +346,7 @@ contract OptionController is Storage {
         path[0] = underlyingAssetAddress;
         path[1] = optionAddress;
         
-        return IUniswapV2Router02(uniswap).getAmountsOut(_amountIn, path)[1];
+        return IUniswapV2Router02(uniswapOption).getAmountsOut(_amountIn, path)[1];
     }
 
     // 想要得到指定数量的option，需要输入多少underlyingAsset
@@ -362,7 +364,7 @@ contract OptionController is Storage {
         path[0] = underlyingAssetAddress;
         path[1] = optionAddress;
         
-        return IUniswapV2Router02(uniswap).getAmountsIn(_amountOut, path)[0];
+        return IUniswapV2Router02(uniswapOption).getAmountsIn(_amountOut, path)[0];
     }
 
     // 输入指定数量的option，可以得到多少underlyingAsset
@@ -380,7 +382,7 @@ contract OptionController is Storage {
         path[0] = optionAddress;
         path[1] = underlyingAssetAddress;
         
-        return IUniswapV2Router02(uniswap).getAmountsOut(_amountIn, path)[1];
+        return IUniswapV2Router02(uniswapOption).getAmountsOut(_amountIn, path)[1];
     }
     
     function pause() external onlyCore {
@@ -401,7 +403,4 @@ contract OptionController is Storage {
         emit Emergency(msg.sender);
     }
 
-    function _getPrice(address _tokenA, address _tokenB, uint _blockNumber) internal returns(uint) {
-        return 0;
-    }
 }

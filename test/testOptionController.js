@@ -7,7 +7,10 @@ const OptionController = artifacts.require('OptionController');
 
 contract('OptionController', (accounts) => {
     
-    beforeEach(async () => {
+    before(async () => {
+        // this.controller = await OptionController.at("0x71d9b920aB60adaBc59D6ebE229A2E91Bd32522c");
+        // this.dai = await MockERC20.at("0x4f96fe3b7a6cf9725f59d353f723c1bdb64ca6aa");
+        
         this.controller = await OptionController.deployed();
         this.dai = await MockERC20.new('DAIToken', 'DAI', '900000000000000000000');
 
@@ -33,17 +36,42 @@ contract('OptionController', (accounts) => {
 
     it("test create option", async () => {
         await this.controller.createOption(1605801600, 500, {value: web3.utils.toWei('1')});
-        
         let optionBalance = await this.controller.getOptionBalance(1605801600, 500, accounts[0]);
-
         console.log('option balance: ' + optionBalance);
 
-        // assert(false, "")
+        this.option = await MockERC20.at(await this.controller.getOptionAddress(1605801600, 500));
+        console.log('option address: ' + this.option.address);
     })
 
-    // it("test add liquidity")
+    it("test add liquidity", async () => {
+        
+        await this.option.approve(this.controller.address, web3.utils.toWei('5'));
+        await this.dai.approve(this.controller.address, web3.utils.toWei('500'));
 
-    // it('test swap (sell and buy option)')
+        console.log('option address: ' + this.option.address)
+        console.log('dai address: ' + this.dai.address)
+        
+        await this.controller.addLiquidity(1605801600, 500, web3.utils.toWei('5'), web3.utils.toWei('500'), 0, 0);
+        
+        let LPBalance = await this.controller.getOptionLPBalance(1605801600, 500, accounts[0]);
+        console.log('LP balance: ' + LPBalance);
+
+    })
+
+    it("swap", async () => {
+        
+        await this.option.approve(this.controller.address, web3.utils.toWei('5'));
+        await this.dai.approve(this.controller.address, web3.utils.toWei('500'));
+
+        console.log('option address: ' + this.option.address)
+        console.log('dai address: ' + this.dai.address)
+        
+        await this.controller.addLiquidity(1605801600, 500, web3.utils.toWei('5'), web3.utils.toWei('500'), 0, 0);
+        
+        let LPBalance = await this.controller.getOptionLPBalance(1605801600, 500, accounts[0]);
+        console.log('LP balance: ' + LPBalance);
+
+    })
 
     // it('test owner exercise')
 

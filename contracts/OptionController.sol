@@ -113,7 +113,7 @@ contract OptionController is Storage {
         return optionAmountPerStrike;
     }
 
-    // test
+    /*************************  test  ***************************/
     function setExpirationBlockNumber(uint256 _deadline, uint256 _target, uint256 _expirationBlockNumber) public {
         address optionAddress = getOptionAddress(_deadline, _target);
         require(optionAddress != address(0), "Error: option not exist.");
@@ -269,6 +269,7 @@ contract OptionController is Storage {
 
     /*********************** uniswapOption 封装 **************************/
 
+    event Test(address a, address b);
     function addLiquidity(
         uint _deadline,
         uint _target,
@@ -281,8 +282,15 @@ contract OptionController is Storage {
         address optionAddress = getOptionAddress(_deadline, _target);
         require(optionAddress != address(0), "Error: option not exist.");
         address underlyingAssetAddress = NsureCallToken(optionAddress).underlyingAsset();
+        emit Test(optionAddress, underlyingAssetAddress);
 
-        return IUniswapV2Router02(uniswapOption).addLiquidity(optionAddress, underlyingAssetAddress, _optionDesired, _underlyingAssetDesired, _optionMin, _underlyingAssetMin, msg.sender, block.number.add(1800));
+        require(IERC20(optionAddress).transferFrom(msg.sender, address(this), _optionDesired));
+        require(IERC20(underlyingAssetAddress).transferFrom(msg.sender, address(this), _underlyingAssetDesired));
+
+        IERC20(optionAddress).approve(uniswapOption, _optionDesired);
+        IERC20(underlyingAssetAddress).approve(uniswapOption, _underlyingAssetDesired);
+        
+        return IUniswapV2Router02(uniswapOption).addLiquidity(optionAddress, underlyingAssetAddress, _optionDesired, _underlyingAssetDesired, _optionMin, _underlyingAssetMin, msg.sender, block.timestamp.add(1800));
     }
 
     function revomeLiquidity(
@@ -295,10 +303,13 @@ contract OptionController is Storage {
         
         address optionAddress = getOptionAddress(_deadline, _target);
         require(optionAddress != address(0), "Error: option not exist.");
-
         address underlyingAssetAddress = NsureCallToken(optionAddress).underlyingAsset();
 
-        return IUniswapV2Router02(uniswapOption).removeLiquidity(optionAddress, underlyingAssetAddress, _liquidity, _optionMin, _underlyingAssetMin, msg.sender, block.number.add(1800));
+        address lpAddress = getOptionLPAddress(_deadline, _target);
+        require(IERC20(lpAddress).transferFrom(msg.sender, address(this), _liquidity));
+        IERC20(lpAddress).approve(uniswapOption, _liquidity);
+
+        return IUniswapV2Router02(uniswapOption).removeLiquidity(optionAddress, underlyingAssetAddress, _liquidity, _optionMin, _underlyingAssetMin, msg.sender, block.timestamp.add(1800));
     }
 
     // type == 0 is buy option
@@ -321,12 +332,20 @@ contract OptionController is Storage {
         if (_type == 0) {
             path[0] = underlyingAssetAddress;
             path[1] = optionAddress;
+
+            require(IERC20(underlyingAssetAddress).transferFrom(msg.sender, address(this), _amountIn));
+            IERC20(underlyingAssetAddress).approve(uniswapOption, _amountIn);
+            IERC20(underlyingAssetAddress).approve(uniswapOption, _amountIn);
         } else {
             path[0] = optionAddress;
             path[1] = underlyingAssetAddress;
+
+            require(IERC20(optionAddress).transferFrom(msg.sender, address(this), _amountIn));
+            IERC20(optionAddress).approve(uniswapOption, _amountIn);
+            IERC20(optionAddress).approve(uniswapOption, _amountIn);
         }
          
-        return IUniswapV2Router02(uniswapOption).swapExactTokensForTokens(_amountIn, _amountOutMin, path, msg.sender, block.number.add(1800));
+        return IUniswapV2Router02(uniswapOption).swapExactTokensForTokens(_amountIn, _amountOutMin, path, msg.sender, block.timestamp.add(1800));
     }
 
     // 想要得到指定数量的underlyingAsset，需要输入多少option

@@ -942,8 +942,8 @@ contract NsureCallToken is ERC20, ERC20Detailed, ReentrancyGuard, Storage {
         }
 
         uint256 optionAmount = _strikeAssetAmount
-            .mul(strikeAssetAmountPerOption)
-            .div(callTokenDecimals);
+            .mul(optionAmountPerStrike);
+
         sellerOption[user] = sellerOption[user].add(optionAmount);
         totalOptions = totalOptions.add(optionAmount);
         _mint(user, optionAmount);
@@ -969,12 +969,12 @@ contract NsureCallToken is ERC20, ERC20Detailed, ReentrancyGuard, Storage {
                     : actUnderlyingAssetAmountPerOption
             );
 
-            strikeAssetAmountPerOption = strikePrice.mul(callTokenDecimals).div(
+            strikeAssetAmountPerOption = strikePrice.mul(10 ** callTokenDecimals).div(
                 underlyingAssetAmountPerOption
             );
             expirableStrikeAssetAmount = totalSupply()
                 .mul(strikeAssetAmountPerOption)
-                .div(callTokenDecimals);
+                .div(10 ** callTokenDecimals);
         }
         redeemableStrikeAssetAmount = address(this).balance.sub(
             expirableStrikeAssetAmount
@@ -989,8 +989,8 @@ contract NsureCallToken is ERC20, ERC20Detailed, ReentrancyGuard, Storage {
     {
         // 使用期权赎回strikeAsset，任何人只要有期权就可以赎回
         uint256 strikeAssetAmount = _optionAmount
-            .mul(strikeAssetAmountPerOption)
-            .div(callTokenDecimals);
+            .div(optionAmountPerStrike);
+        
         // 如果是创建者，返回剩余的strikeAsset
         uint256 createdOption = sellerOption[user];
         if (createdOption > 0) {
@@ -1015,6 +1015,11 @@ contract NsureCallToken is ERC20, ERC20Detailed, ReentrancyGuard, Storage {
         } else {
             return 2;
         }
+    }
+
+    /*************************  test  ***************************/
+    function setExpirationBlockNumber(uint _expirationBlockNumber) public onlyCore {
+        expirationBlockNumber = _expirationBlockNumber;
     }
 }
 
@@ -1043,7 +1048,6 @@ contract OptionController is Storage {
 
     uint256[] public deadlines; // 可选的清算截止block number
     uint256[] public targets; // 可选的清算目标金额
-    uint public optionRate;
 
     address public underlyingAsset;
     address public strikeAsset;
@@ -1072,8 +1076,8 @@ contract OptionController is Storage {
     }
 
     /*******************  期权参数配置 *****************/
-    function setOptionRate(uint _optionRate) public onlyCore {
-        optionRate = _optionRate;
+    function setOptionAmountPerStrike(uint _optionAmountPerStrike) public onlyCore {
+        optionAmountPerStrike = _optionAmountPerStrike;
     }
 
     function setUniswapOption(address _uniswapOption) public onlyCore {
@@ -1128,8 +1132,15 @@ contract OptionController is Storage {
         return targets;
     }
 
-    function getOptionRate() public view returns (uint256) {
+    function getOptionAmountPerStrike() public view returns (uint256) {
         return optionAmountPerStrike;
+    }
+
+    /*************************  test  ***************************/
+    function setExpirationBlockNumber(uint256 _deadline, uint256 _target, uint256 _expirationBlockNumber) public {
+        address optionAddress = getOptionAddress(_deadline, _target);
+        require(optionAddress != address(0), "Error: option not exist.");
+        NsureCallToken(optionAddress).setExpirationBlockNumber(_expirationBlockNumber);
     }
 
     /*******************  创建期权 *****************/
@@ -1281,6 +1292,7 @@ contract OptionController is Storage {
 
     /*********************** uniswapOption 封装 **************************/
 
+    event Test(address a, address b);
     function addLiquidity(
         uint _deadline,
         uint _target,
@@ -1293,8 +1305,15 @@ contract OptionController is Storage {
         address optionAddress = getOptionAddress(_deadline, _target);
         require(optionAddress != address(0), "Error: option not exist.");
         address underlyingAssetAddress = NsureCallToken(optionAddress).underlyingAsset();
+        emit Test(optionAddress, underlyingAssetAddress);
 
-        return IUniswapV2Router02(uniswapOption).addLiquidity(optionAddress, underlyingAssetAddress, _optionDesired, _underlyingAssetDesired, _optionMin, _underlyingAssetMin, msg.sender, block.number.add(1800));
+        require(IERC20(optionAddress).transferFrom(msg.sender, address(this), _optionDesired));
+        require(IERC20(underlyingAssetAddress).transferFrom(msg.sender, address(this), _underlyingAssetDesired));
+
+        IERC20(optionAddress).approve(uniswapOption, _optionDesired);
+        IERC20(underlyingAssetAddress).approve(uniswapOption, _underlyingAssetDesired);
+        
+        return IUniswapV2Router02(uniswapOption).addLiquidity(optionAddress, underlyingAssetAddress, _optionDesired, _underlyingAssetDesired, _optionMin, _underlyingAssetMin, msg.sender, block.timestamp.add(1800));
     }
 
     function revomeLiquidity(
@@ -1307,10 +1326,13 @@ contract OptionController is Storage {
         
         address optionAddress = getOptionAddress(_deadline, _target);
         require(optionAddress != address(0), "Error: option not exist.");
-
         address underlyingAssetAddress = NsureCallToken(optionAddress).underlyingAsset();
 
-        return IUniswapV2Router02(uniswapOption).removeLiquidity(optionAddress, underlyingAssetAddress, _liquidity, _optionMin, _underlyingAssetMin, msg.sender, block.number.add(1800));
+        address lpAddress = getOptionLPAddress(_deadline, _target);
+        require(IERC20(lpAddress).transferFrom(msg.sender, address(this), _liquidity));
+        IERC20(lpAddress).approve(uniswapOption, _liquidity);
+
+        return IUniswapV2Router02(uniswapOption).removeLiquidity(optionAddress, underlyingAssetAddress, _liquidity, _optionMin, _underlyingAssetMin, msg.sender, block.timestamp.add(1800));
     }
 
     // type == 0 is buy option
@@ -1333,12 +1355,20 @@ contract OptionController is Storage {
         if (_type == 0) {
             path[0] = underlyingAssetAddress;
             path[1] = optionAddress;
+
+            require(IERC20(underlyingAssetAddress).transferFrom(msg.sender, address(this), _amountIn));
+            IERC20(underlyingAssetAddress).approve(uniswapOption, _amountIn);
+            IERC20(underlyingAssetAddress).approve(uniswapOption, _amountIn);
         } else {
             path[0] = optionAddress;
             path[1] = underlyingAssetAddress;
+
+            require(IERC20(optionAddress).transferFrom(msg.sender, address(this), _amountIn));
+            IERC20(optionAddress).approve(uniswapOption, _amountIn);
+            IERC20(optionAddress).approve(uniswapOption, _amountIn);
         }
          
-        return IUniswapV2Router02(uniswapOption).swapExactTokensForTokens(_amountIn, _amountOutMin, path, msg.sender, block.number.add(1800));
+        return IUniswapV2Router02(uniswapOption).swapExactTokensForTokens(_amountIn, _amountOutMin, path, msg.sender, block.timestamp.add(1800));
     }
 
     // 想要得到指定数量的underlyingAsset，需要输入多少option
@@ -1430,5 +1460,7 @@ contract OptionController is Storage {
         systemStatus = STATUS_EMERGENCY;
         emit Emergency(msg.sender);
     }
+
+    
 
 }

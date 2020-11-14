@@ -12,6 +12,7 @@ contract OptionController is Storage {
         uint256 deadline; //expiration block number
         uint256 target; //targe price
         uint256 optionAmountPerStrike; //1个行使资产可以创建多少个期权
+        address optionAddress;
         uint256 orderDirection; //should be ORDER_OPTION_CALL or ORDER_OPTION_PUT
     }
 

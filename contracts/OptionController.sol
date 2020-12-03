@@ -19,7 +19,7 @@ contract OptionController is Storage {
     uint256[] public deadlines; // 可选的清算截止block number
     uint256[] public targets; // 可选的清算目标金额
 
-    address public underlyingAsset;
+    address public underlyingAsset;/*  */
     address public strikeAsset;
 
     address public uniswap;

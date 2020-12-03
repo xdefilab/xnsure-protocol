@@ -1,6 +1,6 @@
 const { expectRevert, time } = require('@openzeppelin/test-helpers');
 const MockERC20 = artifacts.require('MockToken');
-const NsurePutToken = artifacts.require('NsuPrePutToken');
+const NsurePutToken = artifacts.require('NsurePutToken');
 P
 contract('NsurePutToken', ([alice, bob, carol, minter]) => {
     beforeEach(async () => {
